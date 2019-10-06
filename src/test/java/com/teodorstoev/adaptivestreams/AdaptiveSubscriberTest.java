@@ -2,16 +2,13 @@ package com.teodorstoev.adaptivestreams;
 
 import io.reactivex.rxjava3.core.Emitter;
 import io.reactivex.rxjava3.core.Flowable;
-import io.reactivex.rxjava3.core.FlowableSubscriber;
 import io.reactivex.rxjava3.schedulers.Schedulers;
-import io.reactivex.rxjava3.subscribers.DefaultSubscriber;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -45,7 +42,8 @@ public class AdaptiveSubscriberTest {
 
     @Test
     public void quickTask_defaultPrefetchCount() throws InterruptedException {
-        createTestStreamAndSubscribe(new AdaptiveSubscriber<>(this::newQuickTaskSubscriber));
+        createTestStreamAndSubscribe(
+                new AdaptiveSubscriber<>(() -> TestSubscribers.newQuickTaskSubscriber(taskCounter)));
 
         TimeUnit.SECONDS.sleep(TEST_DURATION);
 
@@ -54,7 +52,8 @@ public class AdaptiveSubscriberTest {
 
     @Test
     public void quickTask_largePrefetchCount() throws InterruptedException {
-        createTestStreamAndSubscribe(new AdaptiveSubscriber<>(this::newQuickTaskSubscriber, 100));
+        createTestStreamAndSubscribe(
+                new AdaptiveSubscriber<>(() -> TestSubscribers.newQuickTaskSubscriber(taskCounter), 100));
 
         TimeUnit.SECONDS.sleep(TEST_DURATION);
 
@@ -63,20 +62,32 @@ public class AdaptiveSubscriberTest {
 
     @Test
     public void threadBlockingTask_defaultPrefetchCount() throws InterruptedException {
-        createTestStreamAndSubscribe(new AdaptiveSubscriber<>(this::newThreadBlockingTaskSubscriber));
+        createTestStreamAndSubscribe(
+                new AdaptiveSubscriber<>(() -> TestSubscribers.newThreadBlockingTaskSubscriber(taskCounter)));
 
         TimeUnit.SECONDS.sleep(TEST_DURATION);
 
-        assertMinThroughput(600);
+        assertMinThroughput(500);
     }
 
     @Test
     public void threadBlockingTask_largePrefetchCount() throws InterruptedException {
-        createTestStreamAndSubscribe(new AdaptiveSubscriber<>(this::newThreadBlockingTaskSubscriber, 100));
+        createTestStreamAndSubscribe(
+                new AdaptiveSubscriber<>(() -> TestSubscribers.newThreadBlockingTaskSubscriber(taskCounter), 100));
 
         TimeUnit.SECONDS.sleep(TEST_DURATION);
 
         assertMinThroughput(900);
+    }
+
+    @Test
+    public void memoryConsumingTask_defaultPrefetchCount() throws InterruptedException {
+        createTestStreamAndSubscribe(
+                new AdaptiveSubscriber<>(() -> TestSubscribers.newMemoryConsumingTaskSubscriber(taskCounter)));
+
+        TimeUnit.SECONDS.sleep(TEST_DURATION);
+
+        assertMinThroughput(3);
     }
 
     private void createTestStreamAndSubscribe(AdaptiveSubscriber<Object> adaptiveSubscriber) {
@@ -94,59 +105,6 @@ public class AdaptiveSubscriberTest {
         }
     }
 
-    private <T> FlowableSubscriber<T> newQuickTaskSubscriber() {
-        return new DefaultSubscriber<T>() {
-
-            @Override
-            public void onNext(T t) {
-                UUID uuid = UUID.randomUUID();
-                LOGGER.debug("{}", uuid.toString());
-
-                taskCounter.incrementAndGet();
-
-                request(1);
-            }
-
-            @Override
-            public void onError(Throwable throwable) {
-                LOGGER.error("Error in subscriber", throwable);
-            }
-
-            @Override
-            public void onComplete() {
-                LOGGER.debug("Subscriber completed");
-            }
-        };
-    }
-
-    private <T> FlowableSubscriber<T> newThreadBlockingTaskSubscriber() {
-        return new DefaultSubscriber<T>() {
-
-            @Override
-            public void onNext(T t) {
-                try {
-                    TimeUnit.SECONDS.sleep(1);
-                } catch (InterruptedException e) {
-                    LOGGER.error("Task interrupted", e);
-                }
-
-                taskCounter.incrementAndGet();
-
-                request(1);
-            }
-
-            @Override
-            public void onError(Throwable throwable) {
-                LOGGER.error("Error in subscriber", throwable);
-            }
-
-            @Override
-            public void onComplete() {
-                LOGGER.debug("Subscriber completed");
-            }
-        };
-    }
-
     private void assertMinThroughput(int minThroughput) {
         int processedTasksCount = taskCounter.get();
         LOGGER.info("Tasks processed: {}", processedTasksCount);
@@ -154,6 +112,6 @@ public class AdaptiveSubscriberTest {
         double throughput = processedTasksCount * 1.0 / TEST_DURATION;
         LOGGER.info("Task throughput: {} tasks/s", throughput);
 
-        assertTrue(throughput > minThroughput);
+        assertTrue(throughput >= minThroughput);
     }
 }

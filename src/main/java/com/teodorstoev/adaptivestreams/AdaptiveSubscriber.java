@@ -12,6 +12,11 @@ import java.util.concurrent.*;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 
+/**
+ * Implements a reactive-streams subscriber capable of scaling vertically based on the available hardware resources.
+ *
+ * @param <T> the value type
+ */
 public class AdaptiveSubscriber<T> extends DefaultSubscriber<T> {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(AdaptiveSubscriber.class);
@@ -24,18 +29,18 @@ public class AdaptiveSubscriber<T> extends DefaultSubscriber<T> {
 
     private Flowable<T> publisher;
 
-    @SuppressWarnings("WeakerAccess")
     public AdaptiveSubscriber(Supplier<Subscriber<T>> subscriberSupplier) {
         this(subscriberSupplier, 10);
     }
 
-    @SuppressWarnings("WeakerAccess")
     public AdaptiveSubscriber(Supplier<Subscriber<T>> subscriberSupplier, int prefetchCount) {
-        this(subscriberSupplier, prefetchCount, new ThreadPoolExecutor(10, 2000, 5L, TimeUnit.SECONDS,
-                new SynchronousQueue<>()), new DefaultResourceMonitor());
+        this(subscriberSupplier, prefetchCount,
+                new ThreadPoolExecutor(10,
+                        Runtime.getRuntime().availableProcessors() * 500, 5L, TimeUnit.SECONDS,
+                        new SynchronousQueue<>()),
+                new DefaultResourceMonitor(0.7));
     }
 
-    @SuppressWarnings("WeakerAccess")
     public AdaptiveSubscriber(Supplier<Subscriber<T>> subscriberSupplier, int prefetchCount,
                               ThreadPoolExecutor threadPoolExecutor, ResourceMonitor resourceMonitor) {
         this.subscriberSupplier = subscriberSupplier;
@@ -56,15 +61,19 @@ public class AdaptiveSubscriber<T> extends DefaultSubscriber<T> {
     }
 
     @Override
-    public void onNext(T t) {
-        while (!queue.offer(t)) {
+    public void onNext(T task) {
+        while (!queue.offer(task)) {
             if (areFreeThreadsAvailable()) {
-                if (resourceMonitor.isEnoughCpuAvailable() && resourceMonitor.isEnoughMemoryAvailable()) {
-                    publisher.subscribe(subscriberSupplier.get());
+                if (resourceMonitor.isEnoughCpuAvailable()) {
+                    if (resourceMonitor.isEnoughMemoryAvailable()) {
+                        publisher.subscribe(subscriberSupplier.get());
 
-                    LOGGER.debug("Additional publisher subscribed");
+                        LOGGER.debug("Additional publisher subscribed");
+                    } else {
+                        wait("Memory is at the limit. Waiting for memory to become available...");
+                    }
                 } else {
-                    wait("Resources at the limit. Waiting for resources to become available...");
+                    wait("CPU is at the limit. Waiting for CPU time to become available...");
                 }
             } else {
                 wait("Thread pool exhausted. Waiting for threads to become available...");
@@ -110,8 +119,9 @@ public class AdaptiveSubscriber<T> extends DefaultSubscriber<T> {
         LOGGER.info(message);
 
         try {
-            Thread.sleep(100);
+            TimeUnit.MILLISECONDS.sleep(100);
         } catch (InterruptedException e) {
+            LOGGER.debug("Interrupted while waiting for available resources", e);
             onComplete();
         }
     }

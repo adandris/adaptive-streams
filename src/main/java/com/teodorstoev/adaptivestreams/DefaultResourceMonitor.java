@@ -8,39 +8,36 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryUsage;
 
+/**
+ * The default implementation of a resource monitor, based on the metrics provided by
+ * {@link com.sun.management.OperatingSystemMXBean} and {@link java.lang.management.MemoryMXBean}.
+ */
 public class DefaultResourceMonitor implements ResourceMonitor {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(DefaultResourceMonitor.class);
 
-    /**
-     * The minimum amount of memory necessary to start new publishers: 100 MB.
-     */
-    private static final int MINIMUM_MEMORY = 100 * 1024 * 1024;
+    private double usageThreshold;
 
     private final OperatingSystemMXBean osBean;
     private final MemoryMXBean memoryBean;
 
-    DefaultResourceMonitor() {
+    DefaultResourceMonitor(double usageThreshold) {
+        this.usageThreshold = usageThreshold;
+
         osBean = ManagementFactory.getPlatformMXBean(OperatingSystemMXBean.class);
         memoryBean = ManagementFactory.getMemoryMXBean();
     }
 
     @Override
     public boolean isEnoughCpuAvailable() {
-        return getCpuLoad() < 0.7;
+        return getCpuLoad() < usageThreshold;
     }
 
     @Override
     public boolean isEnoughMemoryAvailable() {
-        long freeHeapSize = getTotalHeapSize() - getUsedHeapSize();
-        if (freeHeapSize > MINIMUM_MEMORY) {
+        if (getUsedHeapSize() < usageThreshold * getTotalHeapSize()) {
             return true;
         } else {
-            double heapSizeGrowthCapacity = getMaxHeapSize() - getTotalHeapSize();
-            if (heapSizeGrowthCapacity > MINIMUM_MEMORY && getFreeMemory() > MINIMUM_MEMORY) {
-                return true;
-            }
-
             System.gc();
             LOGGER.info("Garbage collection triggered");
             return false;
@@ -52,13 +49,6 @@ public class DefaultResourceMonitor implements ResourceMonitor {
         LOGGER.debug("CPU load: {}", cpuLoad);
 
         return cpuLoad;
-    }
-
-    private long getFreeMemory() {
-        long freeMemory = osBean.getFreePhysicalMemorySize();
-        LOGGER.debug("Free memory: {}", freeMemory);
-
-        return freeMemory;
     }
 
     private long getTotalHeapSize() {
@@ -75,13 +65,5 @@ public class DefaultResourceMonitor implements ResourceMonitor {
         LOGGER.debug("Total heap size: {}", usedHeapSize);
 
         return usedHeapSize;
-    }
-
-    private double getMaxHeapSize() {
-        MemoryUsage memoryUsage = memoryBean.getHeapMemoryUsage();
-        long maxHeapSize = memoryUsage.getMax();
-        LOGGER.debug("Max heap size: {}", maxHeapSize);
-
-        return maxHeapSize;
     }
 }
