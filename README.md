@@ -20,6 +20,8 @@ In a Maven project you only need to add the following dependency:
 The following example creates a reactive stream of random strings being consumed by an adaptive subscriber, which scales up to the available CPU and heap size:
 
 ```java
+import com.teodorstoev.adaptivestreams.AdaptiveSubscriber;
+
 import io.reactivex.rxjava3.core.Flowable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 import io.reactivex.rxjava3.subscribers.DefaultSubscriber;
@@ -56,3 +58,13 @@ public class HelloWorld {
     }
 }
 ```
+
+## Architecture
+
+An `AdaptiveSubscriber` consumes in parallel elements from a `Flowable` generator.
+Its implementation prefetches the elements in a `BlockingQueue`, from which they are
+consumed concurrently by a dynamic number of subscribers running in a dedicated thread pool.
+
+The number of subscribers at any point of time depends on the availability of threads in the thread pool,
+as well as the current availability of hardware resources (CPU and memory).
+A `ResourceMonitor` provides the relevant CPU and memory metrics.
